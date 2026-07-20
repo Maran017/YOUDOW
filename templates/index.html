@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOUDOW</title>
+    <!-- Production Path: Dynamically loaded via Flask static asset router -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Client-side FFmpeg library for processing HD video merges directly in the browser -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+</head>
+<body>
+
+    <!-- Top Navigation Row containing Brand Logo & LinkedIn Showcase -->
+    <div class="header-nav">
+        <!-- Production Path: Dynamically routed asset file -->
+        <img src="{{ url_for('static', filename='assets/Logo.png') }}" alt="YOUDOW Logo" class="brand-logo">
+        <a href="https://www.linkedin.com/in/jeyamaran" target="_blank" class="showcase-box">
+            <span>⚡ Developed by Jeyamaran</span>
+        </a>
+    </div>
+
+    <!-- Full-Screen Neon Loading Overlay -->
+    <div id="loader" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; flex-direction: column; align-items: center; justify-content: center;">
+        <div style="width: 50px; height: 50px; border: 4px solid #1a1a1a; border-top: 4px solid var(--neon-blue); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <p id="loader-text" style="color: #ffffff; margin-top: 20px; font-size: 0.85rem; font-weight: 700; letter-spacing: 2px;">EXTRACTING STREAMS...</p>
+    </div>
+
+    <!-- Hero Brand Title -->
+    <div class="hero">
+        <h1 class="welcome-text">Welcome to YOUDOW</h1>
+    </div>
+
+    <!-- Search / URL Form Entry Input Row -->
+    <div class="search-container">
+        <input type="text" id="urlInput" placeholder="https://www.youtube.com/watch?v=...">
+        <button class="btn-send" id="sendBtn" onclick="extractMedia()">GO</button>
+    </div>
+
+    <!-- Master Extraction Tables Render Target (Reverted to hidden initialization state for live server hosting) -->
+    <div id="results" class="container" style="display: none; flex-direction: column; gap: 20px; width: 100%; max-width: 800px; margin: 0 auto; padding: 20px 0;">
+        
+        <!-- ============================================================================== -->
+        <!-- NEW COMPONENT: PREMIUM GLASSMORPHISM VIDEO INFO CARD BOX                      -->
+        <!-- ============================================================================== -->
+        <div id="videoInfoCard" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-left: 4px solid var(--neon-blue); border-radius: 8px; padding: 20px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);">
+            <h2 id="metaTitle" style="color: #ffffff; margin: 0 0 12px 0; font-size: 1.2rem; font-weight: 600; line-height: 1.4; letter-spacing: 0.5px;">Video Title Placeholder</h2>
+            <div style="display: flex; gap: 24px; color: #a0a0a0; font-size: 0.85rem; font-weight: 500;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>⏱️</span> <span id="metaDuration" style="color: #ffffff; font-weight: 600;">0:00</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>📅</span> <span id="metaDate" style="color: #ffffff; font-weight: 600;">-</span>
+                </div>
+            </div>
+        </div>
+        <!-- ============================================================================== -->
+
+        <!-- TABLE 1: VIDEO CONTENT (WITH AUDIO) -->
+        <div class="dl-card blue-card">
+            <div class="card-label" style="color: var(--neon-blue);">Video Content (With Audio)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Quality</th>
+                        <th>Size</th>
+                        <th class="col-action">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="t1"></tbody>
+            </table>
+        </div>
+
+        <!-- TABLE 2: VIDEO CONTENT (WITHOUT AUDIO) -->
+        <div class="dl-card yellow-card">
+            <div class="card-label" style="color: var(--neon-yellow);">Video Content (Without Audio)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Quality</th>
+                        <th>Size</th>
+                        <th class="col-action">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="t2"></tbody>
+            </table>
+        </div>
+
+        <!-- TABLE 3: AUDIO ONLY STREAMS -->
+        <div class="dl-card purple-card">
+            <div class="card-label" style="color: var(--neon-purple);">Audio Only</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Format</th>
+                        <th>Size</th>
+                        <th class="col-action">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="t3"></tbody>
+            </table>
+        </div>
+
+        <!-- TABLE 4: VISUAL ASSETS (THUMBNAILS) -->
+        <div class="dl-card orange-card">
+            <div class="card-label" style="color: var(--neon-orange);">Visual Assets (Thumbnails)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Resolution</th>
+                        <th>Size</th>
+                        <th class="col-action">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="t4"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Spinner keyframes -->
+    <style>
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+
+    <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: false });
+
+    document.getElementById('urlInput').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            extractMedia();
+        }
+    });
+
+    async function extractMedia() {
+        const urlInput = document.getElementById('urlInput').value;
+        const url = urlInput.trim();
+        if(!url) return;
+
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        
+        loader.style.display = 'flex';
+        loaderText.innerText = "EXTRACTING STREAMS...";
+
+        try {
+            const response = await fetch('/extract', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url: url })
+            });
+            
+            if (!response.ok) throw new Error('Backend server is down.');
+            const data = await response.json();
+
+            // ------------------------------------------------------------------
+            // LIVE POPULATION OF VIDEO ASSET METADATA CONTENT CARD
+            // ------------------------------------------------------------------
+            if (data.metadata) {
+                document.getElementById('metaTitle').innerText = data.metadata.title || 'Unknown Asset';
+                document.getElementById('metaDuration').innerText = data.metadata.duration || 'N/A';
+                document.getElementById('metaDate').innerText = data.metadata.upload_date || 'N/A';
+            }
+            // ------------------------------------------------------------------
+
+            document.getElementById('results').style.display = 'flex';
+
+            const renderTable = (elementId, arrayData, contextualBtnClass) => {
+                const targetElement = document.getElementById(elementId);
+                if (!arrayData || arrayData.length === 0) {
+                    targetElement.innerHTML = `<tr><td colspan="3" style="color:var(--text-secondary); text-align:center;">No formats found</td></tr>`;
+                    return;
+                }
+
+                targetElement.innerHTML = arrayData.map(item => {
+                    const encodedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(item))));
+                    return `
+                    <tr>
+                        <td>${item.quality}</td>
+                        <td>${item.size}</td>
+                        <td class="col-action">
+                            <button onclick="handleDownload('${encodedPayload}')" class="action-btn ${contextualBtnClass}">Download</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            };
+
+            renderTable('t1', data.table1, 'btn-blue');
+            renderTable('t2', data.table2, 'btn-yellow');
+            renderTable('t3', data.table3, 'btn-purple');
+            renderTable('t4', data.table4, 'btn-orange');
+
+        } catch (err) {
+            alert("Error connecting to server. Please ensure your Python Flask server is running!");
+            console.error(err);
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    async function handleDownload(encodedPayload) {
+        const item = JSON.parse(decodeURIComponent(escape(atob(encodedPayload))));
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+
+        // FORCE DOWNLOAD INTERCEPT FOR TABLE 4 (THUMBNAILS) WITH CORS BYPASS
+        if (item.is_thumbnail) {
+            loader.style.display = 'flex';
+            loaderText.innerText = "DOWNLOADING THUMBNAIL...";
+            try {
+                // Route through our local proxy streaming tunnel to drop CORS restrictions
+                const proxyThumbnailUrl = `/proxy-stream?url=${encodeURIComponent(item.url)}`;
+                const response = await fetch(proxyThumbnailUrl);
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                const cleanFileName = item.quality.replace(/[^a-zA-Z0-9x()]/g, "_").toLowerCase() + ".jpg";
+                link.download = cleanFileName;
+                
+                document.body.appendChild(link);
+                link.click();
+                
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl);
+            } catch (error) {
+                console.warn("CORS fallback triggered for visual assets:", error);
+                window.open(item.url, '_blank');
+            } finally {
+                loader.style.display = 'none';
+            }
+            return;
+        }
+
+        // ORIGINAL LOGIC FOR NATIVE MIXED TRACKS (LOW-RES TABLE 1, NATIVE TABLE 2 & TABLE 3)
+        if (!item.needs_client_merge) {
+            window.open(item.url, '_blank');
+            return;
+        }
+
+        // CLIENT-SIDE HARDWARE MERGING FOR HD ASSETS VIA BYPASS PROXY
+        loader.style.display = 'flex';
+        loaderText.innerText = "DOWNLOADING AND STITCHING TRACKS ON DEVICE...";
+
+        try {
+            if (!ffmpeg.isLoaded()) {
+                await ffmpeg.load();
+            }
+
+            // Create proxy tunnel links for both split content feeds
+            const proxyVideoUrl = `/proxy-stream?url=${encodeURIComponent(item.url)}`;
+            const proxyAudioUrl = `/proxy-stream?url=${encodeURIComponent(item.audio_url)}`;
+
+            // Feed proxy streams securely into FFmpeg virtual environment memory sandbox
+            ffmpeg.FS('writeFile', 'video.mp4', await fetchFile(proxyVideoUrl));
+            ffmpeg.FS('writeFile', 'audio.mp3', await fetchFile(proxyAudioUrl));
+
+            // Execute processing copy block stitch commands locally using user's system cores
+            await ffmpeg.run('-i', 'video.mp4', '-i', 'audio.mp3', '-c', 'copy', 'output.mp4');
+
+            const nativeData = ffmpeg.FS('readFile', 'output.mp4');
+            const downloadUrl = URL.createObjectURL(new Blob([nativeData.buffer], { type: 'video/mp4' }));
+            
+            // Build temporary click event hook to drop the clean finished asset wrapper file
+            const downloadLink = document.createElement('a');
+            downloadLink.href = downloadUrl;
+            downloadLink.download = `YOUDOW_${item.quality.replace(/[^a-zA-Z0-9]/g, "_")}.mp4`;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            URL.revokeObjectURL(downloadUrl);
+
+            // Housekeeping: Clean up FFmpeg filesystem virtual storage workspace block buffers
+            ffmpeg.FS('unlink', 'video.mp4');
+            ffmpeg.FS('unlink', 'audio.mp3');
+            ffmpeg.FS('unlink', 'output.mp4');
+
+        } catch (error) {
+            alert("Local pipeline execution failure. The connection dropped or browser storage memory limits were hit.");
+            console.error(error);
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+    </script>
+</body>
+</html>
